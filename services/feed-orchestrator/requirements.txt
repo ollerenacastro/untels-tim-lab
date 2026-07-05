@@ -1,0 +1,12 @@
+pycti==6.4.11
+APScheduler==3.11.2
+stix2==3.0.2
+redis==8.0.1
+OTXv2==1.5.12
+python-dateutil
+tenacity
+requests
+pytest
+pytest-mock
+fastapi==0.115.14
+uvicorn

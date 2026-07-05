@@ -1,0 +1,229 @@
+# TIM-Lab — Stack slim para clase (sin módulos LLM/GPU)
+# Un solo comando levanta todo:  docker compose up -d
+# Ajustado para VM Kali de 8 GB RAM / 4 vCPUs.
+
+networks:
+  tim-network:
+    driver: bridge
+
+volumes:
+  esdata:
+  redisdata:
+  rabbitmqdata:
+  miniodata:
+
+services:
+
+  # ── Almacenamiento y mensajería (dependencias de OpenCTI) ──────────────
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.15.0
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      # Heap reducido a 1g para VM de 8 GB (el deploy full usa 4g).
+      - ES_JAVA_OPTS=-Xms1g -Xmx1g
+      - cluster.routing.allocation.disk.threshold_enabled=false
+    volumes:
+      - esdata:/usr/share/elasticsearch/data
+    mem_limit: 2g
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536
+        hard: 65536
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9200/_cluster/health"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+    networks:
+      - tim-network
+    restart: unless-stopped
+
+  redis:
+    image: redis:7.2-alpine
+    volumes:
+      - redisdata:/data
+    mem_limit: 256m
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - tim-network
+    restart: unless-stopped
+
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    environment:
+      - RABBITMQ_DEFAULT_USER=${RABBITMQ_USER}
+      - RABBITMQ_DEFAULT_PASS=${RABBITMQ_PASSWORD}
+    volumes:
+      - rabbitmqdata:/var/lib/rabbitmq
+    mem_limit: 512m
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+    networks:
+      - tim-network
+    restart: unless-stopped
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      - MINIO_ROOT_USER=${MINIO_ACCESS_KEY}
+      - MINIO_ROOT_PASSWORD=${MINIO_SECRET_KEY}
+    volumes:
+      - miniodata:/data
+    mem_limit: 256m
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+    networks:
+      - tim-network
+    restart: unless-stopped
+
+  # ── OpenCTI: el TIM mismo ──────────────────────────────────────────────
+
+  opencti:
+    image: opencti/platform:6.4.0
+    environment:
+      # max-old-space-size reducido a 1024 para VM de 8 GB.
+      - NODE_OPTIONS=--max-old-space-size=1024
+      - APP__PORT=8080
+      - APP__BASE_URL=${OPENCTI_BASE_URL}
+      - APP__ADMIN__EMAIL=${OPENCTI_ADMIN_EMAIL}
+      - APP__ADMIN__PASSWORD=${OPENCTI_ADMIN_PASSWORD}
+      - APP__ADMIN__TOKEN=${OPENCTI_ADMIN_TOKEN}
+      - APP__APP_LOGS__LOGS_LEVEL=error
+      - ELASTICSEARCH__URL=http://elasticsearch:9200
+      - REDIS__HOSTNAME=redis
+      - REDIS__PORT=6379
+      - RABBITMQ__HOSTNAME=rabbitmq
+      - RABBITMQ__PORT=5672
+      - RABBITMQ__USERNAME=${RABBITMQ_USER}
+      - RABBITMQ__PASSWORD=${RABBITMQ_PASSWORD}
+      - MINIO__ENDPOINT=minio
+      - MINIO__PORT=9000
+      - MINIO__USE_SSL=false
+      - MINIO__ACCESS_KEY=${MINIO_ACCESS_KEY}
+      - MINIO__SECRET_KEY=${MINIO_SECRET_KEY}
+    ports:
+      - "127.0.0.1:8080:8080"    # UI OpenCTI — la interfaz de la clase
+    mem_limit: 1500m
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:8080/health',r=>{process.exit(r.statusCode<500?0:1)}).on('error',()=>process.exit(1))"]
+      interval: 20s
+      timeout: 10s
+      retries: 15
+      start_period: 60s
+    networks:
+      - tim-network
+    restart: unless-stopped
+
+  worker:
+    image: opencti/worker:6.4.0
+    environment:
+      - OPENCTI_URL=http://opencti:8080
+      - OPENCTI_TOKEN=${OPENCTI_ADMIN_TOKEN}
+      - WORKER_LOG_LEVEL=error
+    mem_limit: 512m
+    depends_on:
+      opencti:
+        condition: service_healthy
+    networks:
+      - tim-network
+    restart: unless-stopped
+
+  # ── Conector MITRE ATT&CK: puebla el knowledge graph (actores/malware/TTPs) ──
+
+  connector-mitre:
+    image: opencti/connector-mitre:6.4.0
+    environment:
+      - OPENCTI_URL=http://opencti:8080
+      - OPENCTI_TOKEN=${OPENCTI_ADMIN_TOKEN}
+      - CONNECTOR_ID=${CONNECTOR_MITRE_ID}
+      - CONNECTOR_NAME=MITRE ATT&CK
+      - CONNECTOR_SCOPE=marking-definition,identity,attack-pattern,course-of-action,intrusion-set,campaign,malware,tool,report
+      - CONNECTOR_UPDATE_EXISTING_DATA=true
+      - CONNECTOR_RUN_AND_TERMINATE=false
+      - MITRE_REMOVE_STATEMENT_MARKING=true
+      - MITRE_INTERVAL=7
+    mem_limit: 512m
+    depends_on:
+      opencti:
+        condition: service_healthy
+    networks:
+      - tim-network
+    restart: unless-stopped
+
+  # ── Conector CISA KEV: CVEs realmente explotadas (sin API key) ──────────
+
+  connector-cisa-kev:
+    image: opencti/connector-cisa-known-exploited-vulnerabilities:6.4.0
+    environment:
+      - OPENCTI_URL=http://opencti:8080
+      - OPENCTI_TOKEN=${OPENCTI_ADMIN_TOKEN}
+      - CONNECTOR_ID=${CONNECTOR_CISA_KEV_ID}
+      - CONNECTOR_NAME=CISA Known Exploited Vulnerabilities
+      - CONNECTOR_SCOPE=vulnerability
+      - CONNECTOR_LOG_LEVEL=error
+      - CONNECTOR_RUN_AND_TERMINATE=false
+      - CISA_CATALOG_URL=https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json
+      - CISA_CREATE_INFRASTRUCTURES=false
+      - CISA_TLP=TLP:CLEAR
+      - CISA_INTERVAL=7
+    mem_limit: 256m
+    depends_on:
+      opencti:
+        condition: service_healthy
+    networks:
+      - tim-network
+    restart: unless-stopped
+
+  # ── Feed Orchestrator: IOCs vivos URLhaus + Feodo (sin API key) ─────────
+
+  feed-orchestrator:
+    build: ./services/feed-orchestrator
+    ports:
+      - "127.0.0.1:8001:8001"    # STIX export endpoint + status
+    environment:
+      - OPENCTI_URL=http://opencti:8080
+      - OPENCTI_TOKEN=${OPENCTI_ADMIN_TOKEN}
+      - REDIS_URL=redis://redis:6379
+      - ES_URL=http://elasticsearch:9200
+      # Sin claves: solo URLhaus + Feodo se activan (no requieren registro).
+    mem_limit: 512m
+    depends_on:
+      opencti:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    networks:
+      - tim-network
+    restart: unless-stopped
