@@ -113,11 +113,22 @@ http://localhost:8080
 
 Login con `admin@tim.local` y la password que guardaste en el paso 2.
 
+> **⚠️ Al retomar el lab (tras suspender o apagar la VM):** NO uses
+> `docker compose up -d` ni `--force-recreate`. Usa **`./scripts/restart-lab.sh`**.
+> Al reanudar la VM los contenedores vuelven sin respetar el orden de arranque:
+> OpenCTI sube antes que Elasticsearch, crashea y toma una IP nueva → el puerto
+> `8080` del host queda "muerto" (aunque `docker compose ps` diga *healthy*).
+> `restart-lab.sh` hace `down` + `up` limpio y reordena por healthcheck. Los datos
+> persisten (viven en volúmenes; `down` sin `-v` no los borra).
+
 ---
 
 ## Parte 2 — Comandos útiles
 
 ```bash
+# Reinicio LIMPIO — úsalo al empezar clase o tras suspender/apagar la VM
+./scripts/restart-lab.sh
+
 # Ver estado de todos los servicios
 docker compose ps
 
@@ -155,6 +166,9 @@ docker compose down -v
 
 | Síntoma | Causa probable | Fix |
 |--------|----------------|-----|
+| `:8080` muerto tras suspender/reiniciar la VM (aunque `ps` diga *healthy*) | NAT del host apunta a la IP vieja de OpenCTI; contenedores reanudados sin orden | **`./scripts/restart-lab.sh`** (no `up -d` ni `--force-recreate` sueltos) |
+| `curl 127.0.0.1:8080` → HTTP 000 pero contenedor *healthy* | Igual que arriba (proxy stale) | `./scripts/restart-lab.sh` |
+| worker/connectors: `Connection refused opencti:8080` en bucle | OpenCTI reiniciándose; se auto-cura al subir | Espera; si persiste, `./scripts/restart-lab.sh` |
 | OpenCTI no carga en `:8080` | Aún arrancando (tarda ~1-2 min tras `up`) | Espera; `docker compose logs -f opencti` |
 | `verify-platform.sh` se queda en 0 objetos | ATT&CK aún importando | Normal los primeros 5-15 min |
 | Elasticsearch muere / reinicia | Poca RAM | Cierra apps del host; confirma VM = 8 GB |
