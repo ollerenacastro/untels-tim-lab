@@ -62,7 +62,7 @@ En la GUI: **Configuración → Almacenamiento → Controlador SATA → Agregar 
 # 1. Identificar el disco NUEVO (sin particiones hijas ni MOUNTPOINTS)
 lsblk
 
-# 2. Formatear SOLO el disco nuevo — reemplaza sdX por el correcto (p.ej. sda)
+# 2. Formatear SOLO el disco nuevo — reemplaza sdX por el correcto (p.ej. sda, sdb, sdc)
 sudo mkfs.ext4 /dev/sdX
 
 # 3. Detener Docker antes de mover su directorio
