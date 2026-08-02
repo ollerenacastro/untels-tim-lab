@@ -150,15 +150,63 @@ docker compose down -v
 
 ---
 
-## Mapa de servicios
+## Arquitectura — los 9 módulos del stack
 
-| Servicio | Rol | Puerto |
-|----------|-----|--------|
-| `opencti` | Knowledge graph + UI — **aquí trabajas** | `localhost:8080` |
-| `feed-orchestrator` | Ingesta IOCs vivos (URLhaus + Feodo) | `localhost:8001` |
-| `connector-mitre` | Importa MITRE ATT&CK (actores, malware, TTPs) | interno |
-| `connector-cisa-kev` | Importa CVEs explotadas (CISA KEV) | interno |
-| `elasticsearch` · `redis` · `rabbitmq` · `minio` · `worker` | Motor interno de OpenCTI | interno |
+Un solo `docker compose up` levanta **9 contenedores** repartidos en cuatro capas.
+
+### Capa 1 — Almacenamiento y mensajería (dependencias de OpenCTI)
+
+Ninguno es OpenCTI; son la infraestructura que OpenCTI necesita para existir.
+
+| Servicio | Rol real | RAM |
+|----------|----------|-----|
+| `elasticsearch` | **Almacén principal.** Aquí viven de verdad todas las entidades STIX (actores, malware, TTPs, CVEs, IOCs). Resuelve toda búsqueda de la UI. | 2 GB |
+| `redis` | **Memoria de trabajo.** Locks de concurrencia, caché de sesión y el *event stream* que consumen los managers internos. | 512 MB |
+| `rabbitmq` | **Cola de mensajes.** Los conectores no escriben en OpenCTI: publican bundles STIX aquí. Desacopla ingesta de procesamiento. | 512 MB |
+| `minio` | **Almacén de archivos** (S3 local): reportes PDF, imágenes, adjuntos. | 256 MB |
+
+### Capa 2 — Núcleo del TIM
+
+| Servicio | Rol real | Puerto | RAM |
+|----------|----------|--------|-----|
+| `opencti` | Plataforma: **API GraphQL + UI web**. El cerebro — consultas, reglas de inferencia y managers internos (History, Notification, Rule, Playbook, Activity, Sync). | `127.0.0.1:8080` | 1.5 GB |
+| `worker` | **Obrero de ingesta.** Consume bundles de RabbitMQ y los escribe vía API. Si muere, la data se acumula en la cola pero nada entra al grafo. | interno | 512 MB |
+
+### Capa 3 — Conectores (ingesta de inteligencia)
+
+| Servicio | Qué aporta | Cadencia | RAM |
+|----------|------------|----------|-----|
+| `connector-mitre` | **MITRE ATT&CK completo**: `intrusion-set` (actores), `malware`, `tool`, `attack-pattern` (TTPs), `course-of-action`, `campaign`. ~1500 patrones de ataque. | 7 días | 512 MB |
+| `connector-cisa-kev` | **CISA Known Exploited Vulnerabilities**: CVEs con explotación confirmada en el mundo real. Sin API key. | 7 días | 256 MB |
+| `feed-orchestrator` | **Servicio custom del curso** (único con `build:` en vez de `image:`). IOCs vivos de URLhaus + Feodo; con API keys en `.env` añade OTX, MalwareBazaar y ThreatFox. API propia en `127.0.0.1:8001`. | 1–6 h | 512 MB |
+
+### Capa 4 — Infraestructura Docker
+
+- **Red `tim-network`** (bridge aislada): los contenedores se hablan por nombre de servicio
+  (`http://opencti:8080`, `redis://redis:6379`), no por IP.
+- **Volúmenes persistentes**: `esdata`, `redisdata`, `rabbitmqdata`, `miniodata`.
+  Por esto `docker compose down` **sin** `-v` nunca pierde datos.
+
+### Flujo de un dato, de la fuente al analista
+
+```
+  Fuente externa          Conector          Cola         Worker        Núcleo        Almacén
+ ────────────────      ──────────────    ──────────    ─────────    ──────────   ──────────────
+  MITRE ATT&CK   ──►  connector-mitre ──┐
+  CISA KEV       ──►  connector-cisa  ──┼─► RabbitMQ ──► worker ──► OpenCTI ──┬─► Elasticsearch
+  URLhaus/Feodo  ──►  feed-orchestr.  ──┘   (bundles               (API)      ├─► Redis
+                                            STIX 2.1)                         └─► MinIO
+                                                                     │
+                                                                     ▼
+                                                             UI :8080 (analista)
+```
+
+Todo entra normalizado a **STIX 2.1** — heterogéneo por fuera, un solo idioma por dentro:
+**ingiere → normaliza → correlaciona → investiga**.
+
+> ⚠️ **Presupuesto de memoria:** la suma de `mem_limit` ronda **6.5 GB** sobre una VM de
+> **8 GB**. El margen es estrecho a propósito: si un servicio se reinicia solo, sospecha de
+> memoria antes que de nada (`docker stats`). Elasticsearch y Redis son los más ajustados.
 
 ---
 
@@ -171,6 +219,8 @@ docker compose down -v
 | worker/connectors: `Connection refused opencti:8080` en bucle | OpenCTI reiniciándose; se auto-cura al subir | Espera; si persiste, `./scripts/restart-lab.sh` |
 | OpenCTI no carga en `:8080` | Aún arrancando (tarda ~1-2 min tras `up`) | Espera; `docker compose logs -f opencti` |
 | `verify-platform.sh` se queda en 0 objetos | ATT&CK aún importando | Normal los primeros 5-15 min |
+| Logs de OpenCTI llenos de `MISCONF Redis ... unable to persist to disk` / `Redis transaction error` | Redis excede su `mem_limit`: el `fork()` del snapshot RDB cruza el límite del cgroup y el kernel lo mata en bucle. La UI carga (HTTP 200) pero **las escrituras están rotas** | 1) `sudo sysctl vm.overcommit_memory=1` (+ añadirlo a `/etc/sysctl.conf`) · 2) subir `mem_limit` de `redis` en `docker-compose.yml` · 3) `docker compose up -d redis` y luego `./scripts/restart-lab.sh` |
+| `docker compose logs redis` muestra `Redis is starting` una y otra vez | Mismo caso: OOM-kill en cada `bgsave`. Compara `RDB memory usage when created` con el `mem_limit` — si el dataset se acerca al límite, no cabe el fork | Sube el `mem_limit` de `redis` por encima del dataset + margen (512m cubre ~266 MB de datos) |
 | Elasticsearch muere / reinicia | Poca RAM | Cierra apps del host; confirma VM = 8 GB |
 | `max virtual memory areas vm.max_map_count too low` | Límite del kernel | `sudo sysctl -w vm.max_map_count=262144` |
 | Todo lento | VM con < 8 GB o < 4 CPU | Revisa Parte 0 |
