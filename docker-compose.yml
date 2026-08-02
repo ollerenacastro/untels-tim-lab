@@ -48,7 +48,11 @@ services:
     image: redis:7.2-alpine
     volumes:
       - redisdata:/data
-    mem_limit: 256m
+    # El dataset RDB ronda 266 MB; con 256m el fork del bgsave cruzaba el límite
+    # del cgroup y el kernel mataba a Redis (OOM-loop). 512m deja headroom para el
+    # copy-on-write del snapshot. Requiere también vm.overcommit_memory=1 en el host.
+    # ponytail: 512m cubre el dataset actual; subir a 768m si vuelve a OOMear.
+    mem_limit: 512m
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -212,6 +216,10 @@ services:
       - REDIS_URL=redis://redis:6379
       - ES_URL=http://elasticsearch:9200
       # Sin claves: solo URLhaus + Feodo se activan (no requieren registro).
+      # Con claves en .env: se activan también OTX, MalwareBazaar y ThreatFox.
+      - OTX_API_KEY=${OTX_API_KEY:-}
+      - MALWAREBAZAAR_AUTH_KEY=${MALWAREBAZAAR_AUTH_KEY:-}
+      - THREATFOX_AUTH_KEY=${THREATFOX_AUTH_KEY:-}
     mem_limit: 512m
     depends_on:
       opencti:
