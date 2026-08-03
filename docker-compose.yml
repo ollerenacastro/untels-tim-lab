@@ -48,11 +48,14 @@ services:
     image: redis:7.2-alpine
     volumes:
       - redisdata:/data
-    # El dataset RDB ronda 266 MB; con 256m el fork del bgsave cruzaba el límite
-    # del cgroup y el kernel mataba a Redis (OOM-loop). 512m deja headroom para el
-    # copy-on-write del snapshot. Requiere también vm.overcommit_memory=1 en el host.
-    # ponytail: 512m cubre el dataset actual; subir a 768m si vuelve a OOMear.
-    mem_limit: 512m
+    # Redis mantiene los datos EN MEMORIA y el fork() del snapshot RDB necesita
+    # margen encima (copy-on-write). Si el uso se acerca al límite del cgroup, el
+    # kernel mata el proceso al guardar y OpenCTI pierde las escrituras en silencio.
+    #   256m → OOM-loop con el dataset de ~266 MB.
+    #   512m → llegó al 89 % durante una ingesta pesada (backfill de OTX).
+    #   768m → margen comprobado con el stack completo ingiriendo.
+    # Requiere además vm.overcommit_memory=1 en el host (ver README).
+    mem_limit: 768m
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -257,9 +260,12 @@ services:
       - ALIENVAULT_TLP=White
       - ALIENVAULT_CREATE_OBSERVABLES=true
       - ALIENVAULT_CREATE_INDICATORS=true
-      # Fecha reciente a propósito: cuanto más atrás, más pulses importa y más
-      # tarda en drenar la cola en una VM de 8 GB.
-      - ALIENVAULT_PULSE_START_TIMESTAMP=2026-07-01T00:00:00
+      # Ventana de pulses a importar. Ojo con retroceder la fecha: cada bundle
+      # pasa por la cola y un solo worker procesa ~9/s en esta VM.
+      #   1 semana ≈ 15 000 bundles  ≈ 30 min de cola
+      #   1 mes    ≈ 70 000 bundles  ≈  2 h  de cola (medido)
+      # Por defecto 7 días, suficiente para ver el conector funcionar en clase.
+      - ALIENVAULT_PULSE_START_TIMESTAMP=${ALIENVAULT_PULSE_START:-2026-07-27T00:00:00}
       - ALIENVAULT_REPORT_TYPE=threat-report
       - ALIENVAULT_REPORT_STATUS=New
       - ALIENVAULT_GUESS_MALWARE=false

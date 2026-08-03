@@ -161,7 +161,7 @@ Ninguno es OpenCTI; son la infraestructura que OpenCTI necesita para existir.
 | Servicio | Rol real | RAM |
 |----------|----------|-----|
 | `elasticsearch` | **Almacén principal.** Aquí viven de verdad todas las entidades STIX (actores, malware, TTPs, CVEs, IOCs). Resuelve toda búsqueda de la UI. | 2 GB |
-| `redis` | **Memoria de trabajo.** Locks de concurrencia, caché de sesión y el *event stream* que consumen los managers internos. | 512 MB |
+| `redis` | **Memoria de trabajo.** Locks de concurrencia, caché de sesión y el *event stream* que consumen los managers internos. | 768 MB |
 | `rabbitmq` | **Cola de mensajes.** Los conectores no escriben en OpenCTI: publican bundles STIX aquí. Desacopla ingesta de procesamiento. | 512 MB |
 | `minio` | **Almacén de archivos** (S3 local): reportes PDF, imágenes, adjuntos. | 256 MB |
 
@@ -194,6 +194,19 @@ Ninguno es OpenCTI; son la infraestructura que OpenCTI necesita para existir.
 > misma fuente. OpenCTI deduplica por ID STIX, pero si prefieres una sola vía deja
 > `OTX_API_KEY` vacío para el orquestador o no uses el profile.
 
+> ⚠️ **Cuidado con la ventana de pulses.** El conector importa desde la fecha de
+> `ALIENVAULT_PULSE_START` (7 días por defecto). Cada pulse pasa por RabbitMQ y **un solo
+> worker procesa ~9 bundles/s** en una VM de 8 GB:
+>
+> | Ventana | Bundles encolados | Tiempo de drenado |
+> |---------|-------------------|-------------------|
+> | 7 días  | ≈ 15 000 | ≈ 30 min |
+> | 1 mes   | ≈ 70 000 | ≈ 2 h (medido) |
+>
+> Durante el drenado la plataforma **funciona con normalidad**, solo va por detrás. Para
+> seguirlo: `docker compose exec rabbitmq rabbitmqctl list_queues name messages`. No amplíes
+> la ventana en horario de clase.
+
 ### Capa 4 — Infraestructura Docker
 
 - **Red `tim-network`** (bridge aislada): los contenedores se hablan por nombre de servicio
@@ -218,9 +231,23 @@ Ninguno es OpenCTI; son la infraestructura que OpenCTI necesita para existir.
 Todo entra normalizado a **STIX 2.1** — heterogéneo por fuera, un solo idioma por dentro:
 **ingiere → normaliza → correlaciona → investiga**.
 
-> ⚠️ **Presupuesto de memoria:** la suma de `mem_limit` ronda **6.5 GB** sobre una VM de
-> **8 GB**. El margen es estrecho a propósito: si un servicio se reinicia solo, sospecha de
-> memoria antes que de nada (`docker stats`). Elasticsearch y Redis son los más ajustados.
+> ⚠️ **Presupuesto de memoria:** la suma de `mem_limit` ronda **6.7 GB** sobre una VM de
+> **8 GB** — **7.1 GB** si activas el profile `otx`. Son techos, no reservas: el uso real es
+> bastante menor. Aun así el margen es estrecho, y si un servicio se reinicia solo, sospecha
+> de memoria antes que de nada (`docker stats`).
+>
+> Ojo con interpretar el porcentaje: **no significa lo mismo en cada servicio**. En Redis los
+> datos tienen que caber en memoria y el `fork()` del snapshot necesita margen encima, así
+> que acercarse al límite es peligroso. En Elasticsearch buena parte de esa memoria es caché
+> de páginas reclamable, y estar al 90-95% durante la ingesta es normal — el número que
+> importa ahí es el heap de la JVM:
+>
+> ```bash
+> docker compose exec elasticsearch \
+>   curl -s "localhost:9200/_cat/nodes?v&h=name,heap.percent,ram.percent,cpu,load_1m"
+> ```
+>
+> `heap.percent` sostenido por encima de **85%** sí es señal de problema.
 
 ---
 
