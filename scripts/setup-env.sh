@@ -23,6 +23,7 @@ _gen_uuid() {
 OPENCTI_TOKEN=$(_gen_uuid)
 CONNECTOR_MITRE_UUID=$(_gen_uuid)
 CONNECTOR_CISA_KEV_UUID=$(_gen_uuid)
+CONNECTOR_ALIENVAULT_UUID=$(_gen_uuid)
 
 # Contraseñas alfanuméricas — evitan problemas de quoting con sed.
 ADMIN_PASS=$(tr -dc 'a-zA-Z0-9' < /dev/urandom | head -c 20)
@@ -41,6 +42,7 @@ _set_var OPENCTI_ADMIN_TOKEN "$OPENCTI_TOKEN"
 _set_var OPENCTI_ADMIN_PASSWORD "$ADMIN_PASS"
 _set_var CONNECTOR_MITRE_ID "$CONNECTOR_MITRE_UUID"
 _set_var CONNECTOR_CISA_KEV_ID "$CONNECTOR_CISA_KEV_UUID"
+_set_var CONNECTOR_ALIENVAULT_ID "$CONNECTOR_ALIENVAULT_UUID"
 _set_var RABBITMQ_PASSWORD "$RABBITMQ_PASS"
 _set_var MINIO_SECRET_KEY "$MINIO_SECRET"
 

@@ -179,6 +179,20 @@ Ninguno es OpenCTI; son la infraestructura que OpenCTI necesita para existir.
 | `connector-mitre` | **MITRE ATT&CK completo**: `intrusion-set` (actores), `malware`, `tool`, `attack-pattern` (TTPs), `course-of-action`, `campaign`. ~1500 patrones de ataque. | 7 días | 512 MB |
 | `connector-cisa-kev` | **CISA Known Exploited Vulnerabilities**: CVEs con explotación confirmada en el mundo real. Sin API key. | 7 días | 256 MB |
 | `feed-orchestrator` | **Servicio custom del curso** (único con `build:` en vez de `image:`). IOCs vivos de URLhaus + Feodo; con API keys en `.env` añade OTX, MalwareBazaar y ThreatFox. API propia en `127.0.0.1:8001`. | 1–6 h | 512 MB |
+| `connector-alienvault` | **Opcional.** Conector oficial de AlienVault OTX: importa *pulses* de la comunidad como reports con sus relaciones. **No arranca por defecto** — ver abajo. | 1 h | 384 MB |
+
+> **Cómo habilitar el conector de AlienVault OTX.** Sin `OTX_API_KEY` este contenedor
+> entraría en bucle de reinicios, así que está detrás de un *profile* de Compose y queda
+> fuera del arranque por defecto. Para activarlo:
+>
+> 1. Obtén la clave gratuita en <https://otx.alienvault.com> (Settings → OTX Key).
+> 2. En `.env`: pon `OTX_API_KEY=tu_clave` y descomenta `COMPOSE_PROFILES=otx`.
+> 3. `docker compose up -d` — a partir de ahí `restart-lab.sh` también lo incluye.
+>
+> Aparecerá en la interfaz bajo **Data → Ingestion → Connectors**. Nota que con la clave
+> puesta, el `feed-orchestrator` también activa su propio feed de OTX: ambos ingieren la
+> misma fuente. OpenCTI deduplica por ID STIX, pero si prefieres una sola vía deja
+> `OTX_API_KEY` vacío para el orquestador o no uses el profile.
 
 ### Capa 4 — Infraestructura Docker
 

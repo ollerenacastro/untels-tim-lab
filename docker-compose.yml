@@ -235,3 +235,41 @@ services:
     networks:
       - tim-network
     restart: unless-stopped
+
+  # ── Conector AlienVault OTX: pulses de la comunidad (requiere OTX_API_KEY) ──
+
+  connector-alienvault:
+    image: opencti/connector-alienvault:6.4.0
+    # Solo arranca si COMPOSE_PROFILES=otx está en el .env (requiere OTX_API_KEY).
+    # Sin la clave este contenedor entraría en bucle de reinicios, así que queda
+    # fuera del arranque por defecto.
+    profiles: ["otx"]
+    environment:
+      - OPENCTI_URL=http://opencti:8080
+      - OPENCTI_TOKEN=${OPENCTI_ADMIN_TOKEN}
+      - CONNECTOR_ID=${CONNECTOR_ALIENVAULT_ID}
+      - CONNECTOR_TYPE=EXTERNAL_IMPORT
+      - CONNECTOR_NAME=AlienVault OTX
+      - CONNECTOR_SCOPE=alienvault
+      - CONNECTOR_LOG_LEVEL=error
+      - ALIENVAULT_BASE_URL=https://otx.alienvault.com
+      - ALIENVAULT_API_KEY=${OTX_API_KEY}
+      - ALIENVAULT_TLP=White
+      - ALIENVAULT_CREATE_OBSERVABLES=true
+      - ALIENVAULT_CREATE_INDICATORS=true
+      # Fecha reciente a propósito: cuanto más atrás, más pulses importa y más
+      # tarda en drenar la cola en una VM de 8 GB.
+      - ALIENVAULT_PULSE_START_TIMESTAMP=2026-07-01T00:00:00
+      - ALIENVAULT_REPORT_TYPE=threat-report
+      - ALIENVAULT_REPORT_STATUS=New
+      - ALIENVAULT_GUESS_MALWARE=false
+      - ALIENVAULT_GUESS_CVE=false
+      - ALIENVAULT_ENABLE_RELATIONSHIPS=true
+      - ALIENVAULT_INTERVAL_SEC=3600
+    mem_limit: 384m
+    depends_on:
+      opencti:
+        condition: service_healthy
+    networks:
+      - tim-network
+    restart: unless-stopped
