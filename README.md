@@ -150,9 +150,9 @@ docker compose down -v
 
 ---
 
-## Arquitectura — los 9 módulos del stack
+## Arquitectura — los 10 módulos del stack
 
-Un solo `docker compose up` levanta **9 contenedores** repartidos en cuatro capas.
+Un solo `docker compose up` levanta **10 contenedores** repartidos en cuatro capas.
 
 ### Capa 1 — Almacenamiento y mensajería (dependencias de OpenCTI)
 
@@ -176,6 +176,7 @@ Ninguno es OpenCTI; son la infraestructura que OpenCTI necesita para existir.
 
 | Servicio | Qué aporta | Cadencia | RAM |
 |----------|------------|----------|-----|
+| `connector-opencti` | **OpenCTI Datasets**: catálogo de países (con lat/long y código ISO) y de sectores. No aporta inteligencia — es el **marco de referencia** al que apuntan las relaciones `targets` de las demás fuentes. | 7 días | 256 MB |
 | `connector-mitre` | **MITRE ATT&CK completo**: `intrusion-set` (actores), `malware`, `tool`, `attack-pattern` (TTPs), `course-of-action`, `campaign`. ~1500 patrones de ataque. | 7 días | 512 MB |
 | `connector-cisa-kev` | **CISA Known Exploited Vulnerabilities**: CVEs con explotación confirmada en el mundo real. Sin API key. | 7 días | 256 MB |
 | `feed-orchestrator` | **Servicio custom del curso** (único con `build:` en vez de `image:`). IOCs vivos de URLhaus + Feodo; con API keys en `.env` añade OTX, MalwareBazaar y ThreatFox. API propia en `127.0.0.1:8001`. | 1–6 h | 512 MB |
@@ -219,20 +220,30 @@ Ninguno es OpenCTI; son la infraestructura que OpenCTI necesita para existir.
 ```
   Fuente externa          Conector          Cola         Worker        Núcleo        Almacén
  ────────────────      ──────────────    ──────────    ─────────    ──────────   ──────────────
-  MITRE ATT&CK   ──►  connector-mitre ──┐
-  CISA KEV       ──►  connector-cisa  ──┼─► RabbitMQ ──► worker ──► OpenCTI ──┬─► Elasticsearch
-  URLhaus/Feodo  ──►  feed-orchestr.  ──┘   (bundles               (API)      ├─► Redis
-                                            STIX 2.1)                         └─► MinIO
-                                                                     │
-                                                                     ▼
-                                                             UI :8080 (analista)
+  Geo + sectores ──►  connector-opencti ──┐
+  MITRE ATT&CK   ──►  connector-mitre   ──┤
+  CISA KEV       ──►  connector-cisa    ──┼─► RabbitMQ ──► worker ──► OpenCTI ──┬─► Elasticsearch
+  URLhaus/Feodo  ──►  feed-orchestr.    ──┘   (bundles               (API)      ├─► Redis
+                                              STIX 2.1)                         └─► MinIO
+                                                                       │
+                                                                       ▼
+                                                               UI :8080 (analista)
 ```
+
+> **Por qué el primero no es una fuente de amenazas.** `connector-opencti` carga solo el
+> marco de referencia: países y sectores. Las demás fuentes publican relaciones del tipo
+> *«este actor ataca a Irán»*, pero el país al que apuntan tiene que existir con sus
+> coordenadas para que un widget de mapa pueda situarlo. Un conector que reporta un país
+> por su nombre lo crea sin latitud y con el código ISO en `ZZ`; al precargar el catálogo,
+> ambos se funden en la misma entidad —el identificador STIX se deriva del nombre— y la
+> que queda sí tiene coordenadas. Es la tabla de referencia antes del JOIN, no un dato de
+> inteligencia.
 
 Todo entra normalizado a **STIX 2.1** — heterogéneo por fuera, un solo idioma por dentro:
 **ingiere → normaliza → correlaciona → investiga**.
 
-> ⚠️ **Presupuesto de memoria:** la suma de `mem_limit` ronda **6.7 GB** sobre una VM de
-> **8 GB** — **7.1 GB** si activas el profile `otx`. Son techos, no reservas: el uso real es
+> ⚠️ **Presupuesto de memoria:** la suma de `mem_limit` ronda **7.0 GB** sobre una VM de
+> **8 GB** — **7.3 GB** si activas el profile `otx`. Son techos, no reservas: el uso real es
 > bastante menor. Aun así el margen es estrecho, y si un servicio se reinicia solo, sospecha
 > de memoria antes que de nada (`docker stats`).
 >

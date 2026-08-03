@@ -161,6 +161,40 @@ services:
       - tim-network
     restart: unless-stopped
 
+  # ── Conector OpenCTI Datasets: marco de referencia (países y sectores) ──
+  #
+  # Va en el docker-compose oficial de OpenCTI junto al de MITRE. No aporta
+  # inteligencia: carga el catálogo de países (con latitud, longitud y código
+  # ISO) y el de sectores, para que las relaciones "targets" que sí publican
+  # otras fuentes tengan a qué apuntar y puedan graficarse en los widgets de
+  # mapa. Sin él, un conector que reporte "Iran" crea un país sin coordenadas
+  # y con el código ISO en "ZZ", y el mapa no tiene dónde pintarlo.
+  # Cero relaciones creadas, cero atribución: solo el sistema de referencia.
+
+  connector-opencti:
+    image: opencti/connector-opencti:6.4.0
+    environment:
+      - OPENCTI_URL=http://opencti:8080
+      - OPENCTI_TOKEN=${OPENCTI_ADMIN_TOKEN}
+      - CONNECTOR_ID=${CONNECTOR_OPENCTI_ID}
+      - CONNECTOR_NAME=OpenCTI Datasets
+      - CONNECTOR_SCOPE=marking-definition,identity,location
+      - CONNECTOR_CONFIDENCE_LEVEL=100
+      - CONNECTOR_UPDATE_EXISTING_DATA=true
+      - CONNECTOR_RUN_AND_TERMINATE=false
+      - CONNECTOR_LOG_LEVEL=error
+      - CONFIG_SECTORS_FILE_URL=https://raw.githubusercontent.com/OpenCTI-Platform/datasets/master/data/sectors.json
+      - CONFIG_GEOGRAPHY_FILE_URL=https://raw.githubusercontent.com/OpenCTI-Platform/datasets/master/data/geography.json
+      - CONFIG_REMOVE_CREATOR=false
+      - CONFIG_INTERVAL=7
+    mem_limit: 256m
+    depends_on:
+      opencti:
+        condition: service_healthy
+    networks:
+      - tim-network
+    restart: unless-stopped
+
   # ── Conector MITRE ATT&CK: puebla el knowledge graph (actores/malware/TTPs) ──
 
   connector-mitre:

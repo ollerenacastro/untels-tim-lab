@@ -21,6 +21,7 @@ _gen_uuid() {
   if command -v uuidgen > /dev/null 2>&1; then uuidgen; else python3 -c "import uuid; print(uuid.uuid4())"; fi
 }
 OPENCTI_TOKEN=$(_gen_uuid)
+CONNECTOR_OPENCTI_UUID=$(_gen_uuid)
 CONNECTOR_MITRE_UUID=$(_gen_uuid)
 CONNECTOR_CISA_KEV_UUID=$(_gen_uuid)
 CONNECTOR_ALIENVAULT_UUID=$(_gen_uuid)
@@ -40,6 +41,7 @@ _set_var() {
 }
 _set_var OPENCTI_ADMIN_TOKEN "$OPENCTI_TOKEN"
 _set_var OPENCTI_ADMIN_PASSWORD "$ADMIN_PASS"
+_set_var CONNECTOR_OPENCTI_ID "$CONNECTOR_OPENCTI_UUID"
 _set_var CONNECTOR_MITRE_ID "$CONNECTOR_MITRE_UUID"
 _set_var CONNECTOR_CISA_KEV_ID "$CONNECTOR_CISA_KEV_UUID"
 _set_var CONNECTOR_ALIENVAULT_ID "$CONNECTOR_ALIENVAULT_UUID"
