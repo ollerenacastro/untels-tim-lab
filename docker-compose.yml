@@ -313,3 +313,44 @@ services:
     networks:
       - tim-network
     restart: unless-stopped
+
+
+  # Conector MISP Feed
+
+  connector-misp-feed:
+    profiles: ["misp"]
+    environment:
+      - OPENCTI_URL=http://opencti:8080
+      - OPENCTI_TOKEN=${OPENCTI_ADMIN_TOKEN}
+      - CONNECTOR_ID=${CONNECTOR_MISP_FEED_ID}
+      - CONNECTOR_NAME=MISP Feed
+      - CONNECTOR_SCOPE=misp-feed
+      - CONNECTOR_RUN_AND_TERMINATE=false
+      - CONNECTOR_LOG_LEVEL=error
+      - MISP_FEED_URL=${MISP_FEED_URL}
+      - MISP_FEED_SSL_VERIFY=true
+      # OJO con esta fecha: gobierna cuánto se importa. Ver la nota de abajo.
+      - MISP_FEED_IMPORT_FROM_DATE=${MISP_FEED_FROM:-2026-07-01}
+      - MISP_FEED_CREATE_REPORTS=true
+      - MISP_FEED_REPORT_TYPE=misp-event
+      - MISP_FEED_CREATE_INDICATORS=true
+      - MISP_FEED_CREATE_OBSERVABLES=true
+      - MISP_FEED_CREATE_OBJECT_OBSERVABLES=true
+      - MISP_FEED_CREATE_TAGS_AS_LABELS=true
+      # false a propósito: adivinar actores desde tags mezcla inferencia con
+      # dato reportado, igual que ALIENVAULT_GUESS_MALWARE.
+      - MISP_FEED_GUESS_THREAT_FROM_TAGS=false
+      - MISP_FEED_AUTHOR_FROM_TAGS=false
+      - MISP_FEED_IMPORT_TO_IDS_NO_SCORE=40
+      - MISP_FEED_IMPORT_UNSUPPORTED_OBSERVABLES_AS_TEXT=false
+      - MISP_FEED_IMPORT_WITH_ATTACHMENTS=false
+      - MISP_FEED_INTERVAL=60
+      - MISP_FEED_SOURCE_TYPE=url
+    image: opencti/connector-misp-feed:6.4.0
+    mem_limit: 384m
+    depends_on:
+      opencti:
+        condition: service_healthy
+    networks:
+      - tim-network
+    restart: unless-stopped
