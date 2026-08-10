@@ -329,8 +329,12 @@ services:
       - CONNECTOR_LOG_LEVEL=error
       - MISP_FEED_URL=${MISP_FEED_URL}
       - MISP_FEED_SSL_VERIFY=true
-      # OJO con esta fecha: gobierna cuánto se importa. Ver la nota de abajo.
-      - MISP_FEED_IMPORT_FROM_DATE=${MISP_FEED_FROM:-2026-07-01}
+      # Ventana de importación. Medido sobre el feed OSINT de CIRCL (agosto 2026):
+      #   1 675 eventos en total, desde 2011-09-22
+      #     287 desde 2026-01-01  ← valor por defecto, suficiente y rápido
+      #      37 desde 2026-07-01  ← demasiado poco para investigar
+      # Órdenes de magnitud por debajo de OTX (≈15 000 bundles por 7 días).
+      - MISP_FEED_IMPORT_FROM_DATE=${MISP_FEED_FROM:-2026-01-01}
       - MISP_FEED_CREATE_REPORTS=true
       - MISP_FEED_REPORT_TYPE=misp-event
       - MISP_FEED_CREATE_INDICATORS=true
@@ -347,7 +351,10 @@ services:
       - MISP_FEED_INTERVAL=60
       - MISP_FEED_SOURCE_TYPE=url
     image: opencti/connector-misp-feed:6.4.0
-    mem_limit: 384m
+    # 256m y no 384m como el de AlienVault: este feed son ~287 eventos por
+    # ventana, no decenas de miles de pulses. Deja margen en la VM de 8 GB
+    # cuando se activan los dos conectores opcionales a la vez.
+    mem_limit: 256m
     depends_on:
       opencti:
         condition: service_healthy
