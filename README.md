@@ -181,6 +181,7 @@ Ninguno es OpenCTI; son la infraestructura que OpenCTI necesita para existir.
 | `connector-cisa-kev` | **CISA Known Exploited Vulnerabilities**: CVEs con explotación confirmada en el mundo real. Sin API key. | 7 días | 256 MB |
 | `feed-orchestrator` | **Servicio custom del curso** (único con `build:` en vez de `image:`). IOCs vivos de URLhaus + Feodo; con API keys en `.env` añade OTX, MalwareBazaar y ThreatFox. API propia en `127.0.0.1:8001`. | 1–6 h | 512 MB |
 | `connector-alienvault` | **Opcional.** Conector oficial de AlienVault OTX: importa *pulses* de la comunidad como reports con sus relaciones. **No arranca por defecto** — ver abajo. | 1 h | 384 MB |
+| `connector-misp-feed` | **Opcional.** Eventos de un feed MISP, agrupados en *reports*, con tags y con la marca `to_ids` que distingue lo accionable. Necesita una URL de feed. **No arranca por defecto** — profile `misp`. | 1 h | 384 MB |
 
 > **Cómo habilitar el conector de AlienVault OTX.** Sin `OTX_API_KEY` este contenedor
 > entraría en bucle de reinicios, así que está detrás de un *profile* de Compose y queda
@@ -243,7 +244,9 @@ Todo entra normalizado a **STIX 2.1** — heterogéneo por fuera, un solo idioma
 **ingiere → normaliza → correlaciona → investiga**.
 
 > ⚠️ **Presupuesto de memoria:** la suma de `mem_limit` ronda **7.0 GB** sobre una VM de
-> **8 GB** — **7.3 GB** si activas el profile `otx`. Son techos, no reservas: el uso real es
+> **8 GB** — **7.3 GB** con el profile `otx`, y **7.7 GB** con `otx,misp` a la vez. Los dos
+> conectores opcionales juntos dejan el margen en unos 300 MB: para una prueba puntual vale,
+> pero en una clase conviene activar uno u otro, no ambos. Son techos, no reservas: el uso real es
 > bastante menor. Aun así el margen es estrecho, y si un servicio se reinicia solo, sospecha
 > de memoria antes que de nada (`docker stats`).
 >
